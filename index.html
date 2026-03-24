@@ -1186,31 +1186,39 @@ function viewFriendOrbit(friend){
 
   setTimeout(()=>{
     // Update center label
-    // Fit friend name inside center node — split into two lines if long
-    const fname = friend.name.toUpperCase();
-    const fparts = fname.split('_');
+    // Display exact username — preserve case and underscores
+    // Split into two lines on underscore if name is long
+    const fname   = friend.name;  // preserve exact case + underscores
+    const fparts  = fname.split('_');
+    const l1El    = document.getElementById('centerLabel1');
+    const l2El    = document.getElementById('centerLabel2');
+    let line1, line2, twoLines;
+
     if(fparts.length > 1 && fname.length > 8){
-      // e.g. MAYA_LISTENS → MAYA / LISTENS
-      document.getElementById('centerLabel1').textContent = fparts[0].slice(0,9);
-      document.getElementById('centerLabel2').textContent = fparts.slice(1).join('_').slice(0,9);
+      // e.g. maya_listens → line1: "maya" / line2: "listens"
+      line1    = fparts[0];
+      line2    = fparts.slice(1).join('_');
+      twoLines = true;
     } else {
-      document.getElementById('centerLabel1').textContent = fname.slice(0,9);
-      document.getElementById('centerLabel2').textContent = 'orbit';
+      line1    = fname;
+      line2    = 'orbit';
+      twoLines = false;
     }
-    // Scale font size to fit — shorter names get larger text
-    const l1 = document.getElementById('centerLabel1');
-    const l2 = document.getElementById('centerLabel2');
-    const maxChars = Math.max(
-      (l1.textContent||'').length,
-      (l2.textContent||'').length
-    );
-    const cFontSize = maxChars <= 5 ? 10.5 : maxChars <= 7 ? 9 : maxChars <= 9 ? 7.8 : 7;
-    l1.setAttribute('font-size', cFontSize);
-    // Reposition labels vertically based on whether we have two content lines
-    const twoLines = l2.textContent !== 'orbit';
-    l1.setAttribute('y', twoLines ? '281' : '287');
-    l2.setAttribute('y', twoLines ? '293' : '300');
-    l2.setAttribute('font-size', twoLines ? cFontSize * 0.88 : 7.5);
+
+    l1El.textContent = line1;
+    l2El.textContent = line2;
+
+    // Scale font to fit inside center circle (r=36, usable width ~58px)
+    // Syne 700: ~0.62px per char per px of font size
+    const maxChars   = Math.max(line1.length, line2.length);
+    const usableW    = 58;
+    const maxFont    = Math.min(10.5, usableW / (maxChars * 0.62));
+    const cFontSize  = Math.max(6.5, maxFont);
+
+    l1El.setAttribute('font-size', cFontSize);
+    l1El.setAttribute('y', twoLines ? '281' : '288');
+    l2El.setAttribute('font-size', twoLines ? Math.max(6, cFontSize * 0.85) : 7.5);
+    l2El.setAttribute('y', twoLines ? '294' : '300');
 
     // Update center node color
     const circles=document.querySelectorAll('#centerG circle');
@@ -1925,10 +1933,10 @@ function toggleTabMenu(name){
   const tab  = document.getElementById('tab-'  + name);
   if(menu) menu.classList.add('open');
   if(tab)  tab.classList.add('menu-open');
-  // Close on outside click
+  // Close on outside click — 350ms delay handles iOS touch→click timing
   setTimeout(()=>{
     document.addEventListener('click', outsideTabMenuClick, { once:true });
-  }, 10);
+  }, 350);
 }
 
 function closeAllTabMenus(){
@@ -1940,8 +1948,9 @@ function closeAllTabMenus(){
 }
 
 function outsideTabMenuClick(e){
-  // Don't close if clicking inside a tab-wrap
+  // Don't close if clicking inside a tab-wrap or tab-dropdown
   if(e.target.closest('.tab-wrap')) return;
+  if(e.target.closest('.tab-dropdown')) return;
   closeAllTabMenus();
 }
 
