@@ -562,10 +562,16 @@ html,body { height:100%; background:var(--bg); color:var(--text); font-family:'S
     min-width: unset;
     padding-bottom: env(safe-area-inset-bottom, 16px);
     transform: translateY(100%);
+    opacity: 0;
+    transition: transform .28s cubic-bezier(.4,0,.2,1), opacity .2s;
     z-index: 300;
+    max-height: 70vh;
+    overflow-y: auto;
   }
   .tab-dropdown.open {
     transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
   }
 
   /* ── Avatar menu: full width on mobile ── */
@@ -1503,64 +1509,117 @@ function expandNode(t){
   const baseR     = engR(t.engagement);
   const expandedR = Math.min(90, Math.max(62, baseR * 2.3));
 
-  // ── Font sizing: fit longest line inside the usable chord ──
-  // textW = 81% of diameter (leaves real padding from stroke edge)
-  const textW     = expandedR * 1.44;  // 72% of inner diameter — 14% padding each side of stroke
-  const CHAR_R    = 1.15;  // Syne 800 uppercase — measured ~1.15x width-to-height
-  const parts     = t.artist.split(' ');
-  const line1     = parts[0].toUpperCase();
-  const line2     = parts.slice(1).join(' ').toUpperCase();
-  const hasLine2  = line2.length > 0;
-  const longest   = hasLine2 ? Math.max(line1.length, line2.length) : line1.length;
-  const fontL1    = Math.max(7, Math.min(13, textW / (longest * CHAR_R)));
-  const fontL2    = Math.round(fontL1 * 0.75);
+  // ── Font sizing ──
+  const textW    = expandedR * 1.44;
+  const CHAR_R   = 1.15;
+  const parts    = t.artist.split(' ');
+  const line1    = parts[0].toUpperCase();
+  const line2    = parts.slice(1).join(' ').toUpperCase();
+  const hasLine2 = line2.length > 0;
+  const longest  = hasLine2 ? Math.max(line1.length, line2.length) : line1.length;
+  const fontL1   = Math.max(7, Math.min(13, textW / (longest * CHAR_R)));
+  const fontL2   = Math.round(fontL1 * 0.75);
 
-  // ── Collision avoidance: find a clear position ──
-  // Start at the node's own position, then push away from any overlapping nodes
-  let cx = t.pos.x, cy = t.pos.y;
-  const minClear = expandedR + 18; // minimum gap between expanded edge and neighbor center
+  // ── Get ACTUAL viewBox bounds at runtime (handles mobile crop) ──
+  const svg = document.getElementById('orbitSvg');
+  const vb  = svg ? svg.viewBox.baseVal : { x:0, y:0, width:820, height:580 };
+  const vbX = vb.x, vbY = vb.y, vbW = vb.width, vbH = vb.height;
+  const PAD = expandedR + 16; // inset from viewBox edge
 
-  // Collect all OTHER nodes' positions and their base radii
+  const minX = vbX + PAD,  maxX = vbX + vbW - PAD;
+  const minY = vbY + PAD,  maxY = vbY + vbH - PAD;
+
+  // ── Neighbor data ──
   const neighbors = activeDataset.filter(n => n.id !== t.id).map(n => ({
     x: n.pos.x, y: n.pos.y, r: engR(n.engagement)
   }));
+  const minClear = expandedR + 20;
 
-  // Iterative push: up to 6 passes to settle a clear position
-  for(let pass = 0; pass < 6; pass++){
+  // ── Find best starting position: try 8 candidate positions ──
+  // For each candidate, score by: distance from neighbors + distance from edges
+  // Candidates: original pos + 8 directions at various distances
+  function score(cx, cy){
+    // Penalty for being outside bounds
+    if(cx < minX || cx > maxX || cy < minY || cy > maxY) return -Infinity;
+    let s = 0;
+    for(const nb of neighbors){
+      const dx = cx - nb.x, dy = cy - nb.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const needed = minClear + nb.r;
+      if(dist < needed) s -= (needed - dist) * 2; // heavy penalty for overlap
+      else s += Math.min(20, dist - needed);       // mild bonus for space
+    }
+    // Bonus for staying close to original node (less visual confusion)
+    const origDist = Math.sqrt((cx-t.pos.x)**2 + (cy-t.pos.y)**2);
+    s -= origDist * 0.05;
+    return s;
+  }
+
+  // Generate candidates: original + pushed versions in 8 directions
+  const candidates = [{ x: t.pos.x, y: t.pos.y }];
+  const pushDist = expandedR * 1.8;
+  for(let angle = 0; angle < 360; angle += 45){
+    const rad = angle * Math.PI / 180;
+    candidates.push({
+      x: t.pos.x + Math.cos(rad) * pushDist,
+      y: t.pos.y + Math.sin(rad) * pushDist
+    });
+  }
+  // Also try quadrant centers of the viewBox
+  const cx_vb = vbX + vbW/2, cy_vb = vbY + vbH/2;
+  for(const [qx, qy] of [
+    [vbX + vbW*0.25, vbY + vbH*0.25],
+    [vbX + vbW*0.75, vbY + vbH*0.25],
+    [vbX + vbW*0.25, vbY + vbH*0.75],
+    [vbX + vbW*0.75, vbY + vbH*0.75],
+  ]){ candidates.push({ x:qx, y:qy }); }
+
+  // Clamp all candidates to bounds first
+  const clamped = candidates.map(c => ({
+    x: Math.max(minX, Math.min(maxX, c.x)),
+    y: Math.max(minY, Math.min(maxY, c.y))
+  }));
+
+  // Pick best scoring candidate
+  let best = clamped[0], bestScore = score(clamped[0].x, clamped[0].y);
+  for(const c of clamped){
+    const s = score(c.x, c.y);
+    if(s > bestScore){ bestScore = s; best = c; }
+  }
+
+  let cx = best.x, cy = best.y;
+
+  // ── Iterative push from best starting position ──
+  for(let pass = 0; pass < 10; pass++){
     let pushed = false;
     for(const nb of neighbors){
       const dx = cx - nb.x, dy = cy - nb.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       const needed = minClear + nb.r;
       if(dist < needed && dist > 0.1){
-        // Push away from neighbor
-        const push = (needed - dist) * 0.65;
+        const push = (needed - dist) * 0.7;
         cx += (dx/dist) * push;
         cy += (dy/dist) * push;
         pushed = true;
       }
     }
+    // Clamp after each push to stay in bounds
+    cx = Math.max(minX, Math.min(maxX, cx));
+    cy = Math.max(minY, Math.min(maxY, cy));
     if(!pushed) break;
   }
 
-  // Also keep within SVG safe bounds (40px from edges)
-  const SVG_PAD = 40;
-  cx = Math.max(expandedR + SVG_PAD, Math.min(820 - expandedR - SVG_PAD, cx));
-  cy = Math.max(expandedR + SVG_PAD, Math.min(580 - expandedR - SVG_PAD, cy));
-
-  // ── Vertical layout: measure total block height, center it ──
-  const lh1     = fontL1 * 1.3;
-  const lh2     = fontL2 * 1.3;
-  const divH    = 6;   // gap + divider + gap
-  const labelH  = 14;  // TOP TRACK label + gap
-  const titleH  = 16;  // track title + gap
-  const playsH  = 13;  // plays text + gap
-  const badgeH  = 18;  // badge pill + gap
-
-  let totalH = lh1;
+  // ── Vertical layout ──
+  const lh1    = fontL1 * 1.3;
+  const lh2    = fontL2 * 1.3;
+  const divH   = 6;
+  const labelH = 14;
+  const titleH = 16;
+  const playsH = 13;
+  const badgeH = 18;
+  let totalH   = lh1;
   if(hasLine2) totalH += lh2;
   totalH += divH + labelH + titleH + playsH + badgeH;
-
   let y = -totalH / 2;
 
   const srcColors    = { sp:'#1ed760', yt:'#ff4444', am:'#fc3c44', bc:'#1da0c3' };
@@ -1569,26 +1628,26 @@ function expandNode(t){
 
   const overlay = document.createElementNS(ns, 'g');
   overlay.setAttribute('id', 'nx' + t.id);
-  overlay.setAttribute('transform', `translate(${cx},${cy})`);
+  overlay.setAttribute('transform', `translate(${Math.round(cx)},${Math.round(cy)})`);
   overlay.style.pointerEvents = 'none';
   overlay.style.opacity = '0';
   overlay.style.transition = 'opacity .3s .08s';
 
-  // Connector line from original position to new position (if moved)
-  const moved = Math.abs(cx - t.pos.x) > 2 || Math.abs(cy - t.pos.y) > 2;
+  // Tether line back to original node if moved
+  const moved = Math.abs(cx - t.pos.x) > 4 || Math.abs(cy - t.pos.y) > 4;
   if(moved){
     const tether = document.createElementNS(ns, 'line');
     tether.setAttribute('x1', t.pos.x - cx);
     tether.setAttribute('y1', t.pos.y - cy);
-    tether.setAttribute('x2', 0); tether.setAttribute('y2', 0);
+    tether.setAttribute('x2', '0'); tether.setAttribute('y2', '0');
     tether.style.stroke = t.nc;
     tether.style.strokeWidth = '1';
-    tether.style.strokeOpacity = '0.25';
-    tether.style.strokeDasharray = '3 4';
+    tether.style.strokeOpacity = '0.22';
+    tether.style.strokeDasharray = '3 5';
     overlay.appendChild(tether);
   }
 
-  // Outer atmosphere ring
+  // Atmosphere glow
   const glow = document.createElementNS(ns, 'circle');
   glow.setAttribute('cx','0'); glow.setAttribute('cy','0');
   glow.setAttribute('r', expandedR + 10);
@@ -1597,7 +1656,7 @@ function expandNode(t){
   glow.style.strokeOpacity = '0.12';
   overlay.appendChild(glow);
 
-  // Main expanded circle
+  // Main circle
   const circle = document.createElementNS(ns, 'circle');
   circle.setAttribute('cx','0'); circle.setAttribute('cy','0');
   circle.setAttribute('r', expandedR);
@@ -1610,51 +1669,45 @@ function expandNode(t){
     el.setAttribute('x','0');
     el.setAttribute('y', Math.round(yPos));
     el.setAttribute('text-anchor','middle');
-    el.style.fill          = color || t.tc;
+    el.style.fill       = color || t.tc;
     if(opacity !== undefined) el.style.fillOpacity = String(opacity);
-    el.style.fontFamily    = family || 'Syne,sans-serif';
-    el.style.fontSize      = size + 'px';
-    el.style.fontWeight    = weight || '700';
-    el.textContent         = text;
+    el.style.fontFamily = family || 'Syne,sans-serif';
+    el.style.fontSize   = size + 'px';
+    el.style.fontWeight = weight || '700';
+    el.textContent      = text;
     return el;
   }
 
-  // Artist name line 1
   y += fontL1 * 0.82;
   overlay.appendChild(mkT(line1, y, fontL1, 'Syne,sans-serif', '800', t.tc, 1));
 
-  // Artist name line 2
   if(hasLine2){
     y += lh2 * 0.92;
     overlay.appendChild(mkT(line2, y, fontL2, 'Syne,sans-serif', '700', t.tc, 0.6));
   }
 
-  // Divider
   y += divH + 2;
   const divEl = document.createElementNS(ns, 'line');
   divEl.setAttribute('x1', -(expandedR*0.42)); divEl.setAttribute('y1', y);
   divEl.setAttribute('x2',   expandedR*0.42);  divEl.setAttribute('y2', y);
-  divEl.style.stroke = t.nc; divEl.style.strokeWidth = '0.5'; divEl.style.strokeOpacity = '0.28';
+  divEl.style.stroke = t.nc; divEl.style.strokeWidth = '0.5';
+  divEl.style.strokeOpacity = '0.28';
   overlay.appendChild(divEl);
 
-  // TOP TRACK label
   y += labelH;
   overlay.appendChild(mkT('TOP TRACK', y, 7, 'Space Grotesk,sans-serif', '600',
     'rgba(232,228,216,0.32)', undefined));
 
-  // Track title — truncate safely to textW
   y += titleH;
-  const maxTitleChars = Math.floor(textW / (6.1));
+  const maxTitleChars = Math.floor(textW / 6.1);
   const titleTxt = t.title.length > maxTitleChars
     ? t.title.slice(0, maxTitleChars - 1) + '…' : t.title;
   overlay.appendChild(mkT(titleTxt, y, 10.5, 'Space Grotesk,sans-serif', '600', t.tc, 0.92));
 
-  // Plays + engagement
   y += playsH;
   overlay.appendChild(mkT(t.pl + ' plays · ' + t.engagement + '%', y, 8,
     'Space Grotesk,sans-serif', '500', t.nc, 0.82));
 
-  // Source badge
   y += badgeH - 4;
   const bW = Math.min(56, textW * 0.52), bH = 13;
   const bBg = document.createElementNS(ns, 'rect');
@@ -1666,7 +1719,6 @@ function expandNode(t){
   overlay.appendChild(mkT(SRC_LABEL[t.src], y - 0.5, 7,
     'Space Grotesk,sans-serif', '700', srcTextColor[t.src], 1));
 
-  // Hide original small node
   g.style.opacity = '0';
   g.style.transition = 'opacity .18s';
 
