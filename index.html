@@ -1186,8 +1186,31 @@ function viewFriendOrbit(friend){
 
   setTimeout(()=>{
     // Update center label
-    document.getElementById('centerLabel1').textContent=friend.name.toUpperCase().slice(0,8);
-    document.getElementById('centerLabel2').textContent='orbit';
+    // Fit friend name inside center node — split into two lines if long
+    const fname = friend.name.toUpperCase();
+    const fparts = fname.split('_');
+    if(fparts.length > 1 && fname.length > 8){
+      // e.g. MAYA_LISTENS → MAYA / LISTENS
+      document.getElementById('centerLabel1').textContent = fparts[0].slice(0,9);
+      document.getElementById('centerLabel2').textContent = fparts.slice(1).join('_').slice(0,9);
+    } else {
+      document.getElementById('centerLabel1').textContent = fname.slice(0,9);
+      document.getElementById('centerLabel2').textContent = 'orbit';
+    }
+    // Scale font size to fit — shorter names get larger text
+    const l1 = document.getElementById('centerLabel1');
+    const l2 = document.getElementById('centerLabel2');
+    const maxChars = Math.max(
+      (l1.textContent||'').length,
+      (l2.textContent||'').length
+    );
+    const cFontSize = maxChars <= 5 ? 10.5 : maxChars <= 7 ? 9 : maxChars <= 9 ? 7.8 : 7;
+    l1.setAttribute('font-size', cFontSize);
+    // Reposition labels vertically based on whether we have two content lines
+    const twoLines = l2.textContent !== 'orbit';
+    l1.setAttribute('y', twoLines ? '281' : '287');
+    l2.setAttribute('y', twoLines ? '293' : '300');
+    l2.setAttribute('font-size', twoLines ? cFontSize * 0.88 : 7.5);
 
     // Update center node color
     const circles=document.querySelectorAll('#centerG circle');
@@ -1232,7 +1255,11 @@ function returnToMyOrbit(){
 
   setTimeout(()=>{
     document.getElementById('centerLabel1').textContent='JORDAN';
+    document.getElementById('centerLabel1').setAttribute('font-size','9.5');
+    document.getElementById('centerLabel1').setAttribute('y','286');
     document.getElementById('centerLabel2').textContent='your orbit';
+    document.getElementById('centerLabel2').setAttribute('font-size','7.5');
+    document.getElementById('centerLabel2').setAttribute('y','299');
     const circles=document.querySelectorAll('#centerG circle');
     circles[0].style.stroke='#7c6af7'; circles[0].style.fill='#7c6af7';
     circles[1].style.fill='#7c6af7';
@@ -1986,52 +2013,78 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
 // Mobile sheet auto-open is handled inline in pick() and viewFriendOrbit()
 
-/* ─── PINCH TO ZOOM (mobile) ─── */
-let pinchStartDist = 0;
-let pinchStartZoom = 1;
-let pinchMidX = 0, pinchMidY = 0;
-let pinchPanX = 0, pinchPanY = 0;
+/* ─── PINCH TO ZOOM + TWO-FINGER PAN (mobile) ─── */
+let pinchStartDist  = 0;
+let pinchStartZoom  = 1;
+let pinchStartPanX  = 0, pinchStartPanY  = 0;
+let pinchStartMidX  = 0, pinchStartMidY  = 0;
+let isPinching      = false;
 
-function getPinchDist(touches){
-  const dx = touches[0].clientX - touches[1].clientX;
-  const dy = touches[0].clientY - touches[1].clientY;
-  return Math.sqrt(dx*dx + dy*dy);
+function getTouches(e){
+  return { 
+    dist: Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    ),
+    midX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+    midY: (e.touches[0].clientY + e.touches[1].clientY) / 2
+  };
 }
 
 function onMapTouchStartPinch(e){
   if(e.touches.length === 2){
-    // Cancel any ongoing single-touch pan
-    isTouchDragging = false;
-    pinchStartDist = getPinchDist(e.touches);
-    pinchStartZoom = currentZoom;
-    pinchPanX = panX;
-    pinchPanY = panY;
-    // Midpoint of the two fingers in client coords
-    pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-    pinchMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    isPinching      = true;
+    isTouchDragging = false; // cancel single-finger pan
+    wasDragging     = true;  // prevent accidental click-recenter on lift
+
+    const t = getTouches(e);
+    pinchStartDist  = t.dist;
+    pinchStartMidX  = t.midX;
+    pinchStartMidY  = t.midY;
+    pinchStartZoom  = currentZoom;
+    pinchStartPanX  = panX;
+    pinchStartPanY  = panY;
   }
 }
 
 function onMapTouchMovePinch(e){
-  if(e.touches.length === 2){
-    e.preventDefault();
-    const dist = getPinchDist(e.touches);
-    const scale = dist / pinchStartDist;
-    const newZoom = Math.max(0.6, Math.min(4, pinchStartZoom * scale));
+  if(!isPinching || e.touches.length !== 2) return;
+  e.preventDefault();
 
-    // Zoom toward the pinch midpoint
-    const wrap = document.getElementById('orbitWrap');
-    if(!wrap) return;
-    const rect = wrap.getBoundingClientRect();
-    const mx = pinchMidX - rect.left;
-    const my = pinchMidY - rect.top;
+  const t        = getTouches(e);
+  const wrap     = document.getElementById('orbitWrap');
+  if(!wrap) return;
+  const rect     = wrap.getBoundingClientRect();
 
-    // Adjust pan so midpoint stays fixed
-    const zoomRatio = newZoom / currentZoom;
-    panX = mx - zoomRatio * (mx - panX);
-    panY = my - zoomRatio * (my - panY);
-    currentZoom = newZoom;
-    applyMapTransform(false);
+  // Scale delta since gesture started
+  const scaleDelta = t.dist / pinchStartDist;
+  const newZoom    = Math.max(0.5, Math.min(5, pinchStartZoom * scaleDelta));
+
+  // Finger midpoint in wrap-local coords (current and start)
+  const curMidX  = t.midX  - rect.left;
+  const curMidY  = t.midY  - rect.top;
+  const startMidX = pinchStartMidX - rect.left;
+  const startMidY = pinchStartMidY - rect.top;
+
+  // Two-finger pan: how much the midpoint moved since gesture start
+  const panDeltaX = curMidX - startMidX;
+  const panDeltaY = curMidY - startMidY;
+
+  // Zoom toward the START midpoint, then apply pan delta on top
+  // Formula: new pan = startPan + panDelta + startMid*(startZoom - newZoom)... 
+  // Simplified: keep the point under startMid fixed while scaling, then pan
+  panX = startMidX - (startMidX - pinchStartPanX) * (newZoom / pinchStartZoom) + panDeltaX;
+  panY = startMidY - (startMidY - pinchStartPanY) * (newZoom / pinchStartZoom) + panDeltaY;
+  currentZoom = newZoom;
+
+  applyMapTransform(false);
+}
+
+function onMapTouchEndPinch(e){
+  if(e.touches.length < 2){
+    isPinching = false;
+    // Brief timeout before allowing click again
+    setTimeout(()=>{ wasDragging = false; }, 80);
   }
 }
 
@@ -2041,6 +2094,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(!wrap) return;
   wrap.addEventListener('touchstart', onMapTouchStartPinch, { passive:true });
   wrap.addEventListener('touchmove',  onMapTouchMovePinch,  { passive:false });
+  wrap.addEventListener('touchend',   onMapTouchEndPinch,   { passive:true });
 });
 
 /* ─── MOBILE MAP SIZING ─── */
