@@ -426,6 +426,188 @@ html,body { height:100%; background:var(--bg); color:var(--text); font-family:'S
   transition:transform .18s;
 }
 .tab-wrap .tab.has-menu.menu-open::after { transform:rotate(180deg); opacity:0.8; }
+
+/* ═══════════════════════════════════════════
+   MOBILE LAYOUT  (≤ 768px)
+   Strategy:
+   - Map fills full viewport
+   - Sidebar becomes a bottom sheet
+   - Header condenses
+   - Tabs scroll horizontally
+   - Bottom sheet peeks 72px, drags to half-screen
+═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── App shell ── */
+  .app { height: 100dvh; /* dynamic viewport height — handles Safari toolbar */ }
+
+  /* ── Header ── */
+  .header { padding: 10px 14px; }
+  .discovery-pill { display: none; } /* hide on small screens — too cramped */
+  .platform-pills { display: none; } /* hidden on mobile */
+  .hdr-name { display: none; }
+  .hdr-handle { display: none; }
+  .logo { font-size: 16px; }
+
+  /* ── Tabs ── */
+  .tabs {
+    padding: 0 14px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 9px 12px; font-size: 11px; white-space: nowrap; }
+
+  /* ── Body: stack map + sheet vertically ── */
+  .body {
+    flex-direction: column;
+    position: relative;
+  }
+
+  /* ── Map: fill all available space ── */
+  .map-area {
+    flex: 1;
+    min-height: 0;
+    /* Leave room for the peeking bottom sheet handle */
+    padding-bottom: 72px;
+  }
+
+  /* ── Hide desktop legends on mobile ── */
+  .map-legend  { display: none; }
+  .size-legend { display: none; }
+
+  /* ── Add to Orbit button: lift above sheet ── */
+  .add-orbit-btn {
+    bottom: 82px;
+    font-size: 11px;
+    padding: 7px 14px;
+  }
+
+  /* ── Player bar: full width above sheet ── */
+  .player-bar {
+    right: 0;
+    bottom: 72px; /* sits just above sheet peek */
+  }
+
+  /* ── Bottom sheet ── */
+  .sidebar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    height: calc(100% - 60px); /* max height when fully open */
+    border-left: none;
+    border-top: 1px solid rgba(255,255,255,.1);
+    border-radius: 18px 18px 0 0;
+    background: var(--bg2);
+    transform: translateY(calc(100% - 72px)); /* peek 72px */
+    transition: transform .35s cubic-bezier(.4,0,.2,1);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 -8px 32px rgba(0,0,0,.5);
+    /* Override fixed width from desktop */
+    flex-shrink: unset;
+  }
+
+  .sidebar.sheet-open {
+    transform: translateY(0);
+  }
+
+  /* ── Sheet drag handle ── */
+  .sheet-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0 6px;
+    flex-shrink: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sheet-handle-bar {
+    width: 36px; height: 4px;
+    background: rgba(255,255,255,.2);
+    border-radius: 2px;
+  }
+
+  /* ── Sheet content scrolls ── */
+  .friends-zone {
+    max-height: none; /* override desktop max-height */
+    overflow-y: auto;
+  }
+
+  /* ── Friend orbit panel ── */
+  .friend-orbit-panel {
+    overflow-y: auto;
+  }
+
+  /* ── Artist zone ── */
+  .artist-zone {
+    overflow-y: auto;
+  }
+
+  /* ── Tab dropdowns: full width on mobile ── */
+  .tab-dropdown {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-radius: 18px 18px 0 0;
+    border-top: 1px solid rgba(255,255,255,.1);
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    min-width: unset;
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+    transform: translateY(100%);
+    z-index: 300;
+  }
+  .tab-dropdown.open {
+    transform: translateY(0);
+  }
+
+  /* ── Avatar menu: full width on mobile ── */
+  .avatar-menu {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    border-radius: 18px 18px 0 0;
+    border-top: 1px solid rgba(255,255,255,.1);
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+    transform: translateY(100%) scale(1); /* override desktop transform */
+    z-index: 300;
+  }
+  .avatar-menu.open {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+
+  /* ── Map banner (friend orbit) ── */
+  .map-banner {
+    top: 10px;
+    max-width: calc(100% - 28px);
+  }
+
+  /* ── Orbit SVG: ensure no overflow issues ── */
+  .orbit-wrap { touch-action: none; } /* prevent browser scroll interfering with pan */
+
+  /* ── Safe area padding for notched phones ── */
+  .header { padding-top: max(10px, env(safe-area-inset-top)); }
+}
+
+/* Extra small phones */
+@media (max-width: 390px) {
+  .tab { font-size: 10px; padding: 8px 10px; }
+  .logo { font-size: 14px; }
+}
 </style>
 </head>
 <body>
@@ -688,7 +870,10 @@ html,body { height:100%; background:var(--bg); color:var(--text); font-family:'S
     </div>
 
     <!-- SIDEBAR -->
-    <div class="sidebar">
+    <div class="sidebar" id="sidebar">
+      <div class="sheet-handle" id="sheetHandle" onclick="toggleSheet()">
+        <div class="sheet-handle-bar"></div>
+      </div>
       <div class="friends-zone" id="friendsZone">
         <div class="zone-hdr">
           <span class="zone-title" id="zoneTitle">In Your Orbit</span>
@@ -1728,6 +1913,89 @@ function outsideTabMenuClick(e){
   // Don't close if clicking inside a tab-wrap
   if(e.target.closest('.tab-wrap')) return;
   closeAllTabMenus();
+}
+
+/* ─── MOBILE BOTTOM SHEET ─── */
+let sheetOpen = false;
+let sheetDragStartY = 0;
+let sheetDragStartTranslate = 0;
+let isSheetDragging = false;
+
+function isMobile(){ return window.innerWidth <= 768; }
+
+function toggleSheet(){
+  if(!isMobile()) return;
+  sheetOpen = !sheetOpen;
+  document.getElementById('sidebar')?.classList.toggle('sheet-open', sheetOpen);
+}
+
+function openSheet(){
+  if(!isMobile()) return;
+  sheetOpen = true;
+  document.getElementById('sidebar')?.classList.add('sheet-open');
+}
+
+function closeSheet(){
+  if(!isMobile()) return;
+  sheetOpen = false;
+  document.getElementById('sidebar')?.classList.remove('sheet-open');
+}
+
+// Auto-open sheet when a friend is selected or node picked on mobile
+const _origViewFriendOrbit = typeof viewFriendOrbit === 'function' ? viewFriendOrbit : null;
+
+// Tap the map background on mobile closes the sheet
+document.addEventListener('DOMContentLoaded', ()=>{
+  const wrap = document.getElementById('orbitWrap');
+  if(wrap){
+    wrap.addEventListener('click', ()=>{
+      if(isMobile() && sheetOpen && !wasDragging) closeSheet();
+    });
+  }
+
+  // Sheet touch-drag to open/close
+  const handle = document.getElementById('sheetHandle');
+  const sidebar = document.getElementById('sidebar');
+  if(!handle || !sidebar) return;
+
+  handle.addEventListener('touchstart', (e)=>{
+    isSheetDragging = true;
+    sheetDragStartY = e.touches[0].clientY;
+    sheetDragStartTranslate = sheetOpen ? 0 : sidebar.offsetHeight - 72;
+    sidebar.style.transition = 'none';
+  }, { passive:true });
+
+  handle.addEventListener('touchmove', (e)=>{
+    if(!isSheetDragging) return;
+    const dy = e.touches[0].clientY - sheetDragStartY;
+    const newT = Math.max(0, Math.min(sidebar.offsetHeight - 72, sheetDragStartTranslate + dy));
+    sidebar.style.transform = `translateY(${newT}px)`;
+  }, { passive:true });
+
+  handle.addEventListener('touchend', (e)=>{
+    if(!isSheetDragging) return;
+    isSheetDragging = false;
+    sidebar.style.transition = '';
+    const dy = e.changedTouches[0].clientY - sheetDragStartY;
+    // If dragged down more than 60px → close, else open
+    if(dy > 60) closeSheet();
+    else openSheet();
+    sidebar.style.transform = '';
+  });
+});
+
+// When a node is picked on mobile, open the sheet to show artist info
+const _origPick = pick;
+function pick(idx){
+  _origPick(idx);
+  if(isMobile()) openSheet();
+}
+
+// When viewing a friend on mobile, open sheet
+const _origViewFriend = viewFriendOrbit;
+function viewFriendOrbit(friend){
+  _origViewFriend(friend);
+  if(isMobile()) setTimeout(openSheet, 350);
 }
 </script>
 </body>
