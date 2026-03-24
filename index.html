@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>lowerorbit.space</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -1214,6 +1214,8 @@ function viewFriendOrbit(friend){
 
     // Hide add button
     document.getElementById('addOrbitBtn').classList.add('hidden');
+    // Open bottom sheet on mobile
+    if(isMobile()) setTimeout(openSheet, 360);
 
     // Reset zoom & node selection
     resetZoom();
@@ -1416,6 +1418,7 @@ function pick(idx){
   document.getElementById('barArtist').textContent = t.artist + ' · ' + SRC_LABEL[t.src];
   document.getElementById('barPlays').textContent = t.pl + ' plays · ' + t.engagement + '% engagement';
   resetProg(); startPlay();
+  if(isMobile()) openSheet();
 
   // Artist panel (only in my orbit view)
   if(!viewingFriend){
@@ -1941,9 +1944,6 @@ function closeSheet(){
   document.getElementById('sidebar')?.classList.remove('sheet-open');
 }
 
-// Auto-open sheet when a friend is selected or node picked on mobile
-const _origViewFriendOrbit = typeof viewFriendOrbit === 'function' ? viewFriendOrbit : null;
-
 // Tap the map background on mobile closes the sheet
 document.addEventListener('DOMContentLoaded', ()=>{
   const wrap = document.getElementById('orbitWrap');
@@ -1984,19 +1984,83 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 });
 
-// When a node is picked on mobile, open the sheet to show artist info
-const _origPick = pick;
-function pick(idx){
-  _origPick(idx);
-  if(isMobile()) openSheet();
+// Mobile sheet auto-open is handled inline in pick() and viewFriendOrbit()
+
+/* ─── PINCH TO ZOOM (mobile) ─── */
+let pinchStartDist = 0;
+let pinchStartZoom = 1;
+let pinchMidX = 0, pinchMidY = 0;
+let pinchPanX = 0, pinchPanY = 0;
+
+function getPinchDist(touches){
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
 }
 
-// When viewing a friend on mobile, open sheet
-const _origViewFriend = viewFriendOrbit;
-function viewFriendOrbit(friend){
-  _origViewFriend(friend);
-  if(isMobile()) setTimeout(openSheet, 350);
+function onMapTouchStartPinch(e){
+  if(e.touches.length === 2){
+    // Cancel any ongoing single-touch pan
+    isTouchDragging = false;
+    pinchStartDist = getPinchDist(e.touches);
+    pinchStartZoom = currentZoom;
+    pinchPanX = panX;
+    pinchPanY = panY;
+    // Midpoint of the two fingers in client coords
+    pinchMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    pinchMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+  }
 }
+
+function onMapTouchMovePinch(e){
+  if(e.touches.length === 2){
+    e.preventDefault();
+    const dist = getPinchDist(e.touches);
+    const scale = dist / pinchStartDist;
+    const newZoom = Math.max(0.6, Math.min(4, pinchStartZoom * scale));
+
+    // Zoom toward the pinch midpoint
+    const wrap = document.getElementById('orbitWrap');
+    if(!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const mx = pinchMidX - rect.left;
+    const my = pinchMidY - rect.top;
+
+    // Adjust pan so midpoint stays fixed
+    const zoomRatio = newZoom / currentZoom;
+    panX = mx - zoomRatio * (mx - panX);
+    panY = my - zoomRatio * (my - panY);
+    currentZoom = newZoom;
+    applyMapTransform(false);
+  }
+}
+
+// Attach pinch listeners
+document.addEventListener('DOMContentLoaded', ()=>{
+  const wrap = document.getElementById('orbitWrap');
+  if(!wrap) return;
+  wrap.addEventListener('touchstart', onMapTouchStartPinch, { passive:true });
+  wrap.addEventListener('touchmove',  onMapTouchMovePinch,  { passive:false });
+});
+
+/* ─── MOBILE MAP SIZING ─── */
+function adjustMapForMobile(){
+  if(!isMobile()) return;
+  const svg = document.getElementById('orbitSvg');
+  if(!svg) return;
+  // Tighter viewBox centers and zooms in on the orbit area
+  // Original: 0 0 820 580 — center at 410,290
+  // Mobile: zoom in to show 560x420 area centered on 410,290
+  const mW = 600, mH = 450;
+  const mX = 410 - mW/2;  // 110
+  const mY = 290 - mH/2;  // 65
+  svg.setAttribute('viewBox', `${mX} ${mY} ${mW} ${mH}`);
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  adjustMapForMobile();
+  window.addEventListener('resize', adjustMapForMobile);
+});
 </script>
 </body>
 </html>
